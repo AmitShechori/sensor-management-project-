@@ -4,18 +4,36 @@ import uuid
 import json
 import csv
 import time
+import logging
 from datetime import datetime
 from sensors import Sensor
 
+logging.basicConfig(filename= 'errors.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class EventManager:
     def create_event(self,sensor: Sensor) -> dict:
         if sensor.battery_level <= 0:
-            print(f"Error: Cannot access sensor {sensor.sensor_id} ({sensor.location}) - Battery is DEAD (0%).")
+            error_msg = f"Cannot access sensor {sensor.sensor_id} - Battery DEAD"
+            logging.error(error_msg) # זה ייכנס לקובץ errors.log
+            print(f"Error: {error_msg}")
             return None
         current_battery = sensor.battery_level 
-        # Create a random value (with some offset to test min/max)
-        sampled_value = round(random.uniform(sensor.min_val -5, sensor.max_val + 5), 2)
+
+        chance = random.random()
+        if chance < 0.05:
+            sampled_value = round(random.uniform(-50, -200), 2)
+            logging.warning(f"Sensor {sensor.sensor_id} ({sensor.location}): Hardware error - Extreme low value detected: {sampled_value}.")
+        elif chance < 0.1:
+            sampled_value = round(random.uniform(50, 200), 2)
+            logging.warning(f"Sensor {sensor.sensor_id} ({sensor.location}): Hardware error - Extreme high value detected: {sampled_value}.")
+        elif chance < 0.12:
+            sampled_value = "ERR_DATA_CORRUPT"
+            logging.error(f"Sensor {sensor.sensor_id} ({sensor.location}): Data corruption - Non-numeric value received")      
+        else:  
+            # Create a random value (with some offset to test min/max)
+            sampled_value = round(random.uniform(sensor.min_val -5, sensor.max_val + 5), 2)
+        
+        
         # Get status from sensor 
         status = sensor.validate_value(sampled_value)
         # Battery drop: decrease by 1 each time we read data
@@ -36,60 +54,60 @@ class EventManager:
             "status": status,
             "battery_level": f"{current_battery}%"
         }
+        if random.random() < 0.05:
+            logging.warning(f"Sensor {sensor.sensor_id} ({sensor.location}): Packet loss - value field missing in transmission")
+            del event["value"]
+            event["status"] = "ERROR: Missing Value"        
         return event
     
 
-    def run_simulation(self, sensors_list: list, iterations: int):
+    def run_simulation(self, sensors_list: list, total_seconds: int):
         # Runs the simulation for all sensors and collects all events
 
-        all_events = []  # List to store all the results
-       
-        # Go through each sensor in our list 
-        for sensor in sensors_list:
-            # Run the check multiple times for each sensor 
-            for i in range(iterations):
-                delay = round(random.uniform(0.1, 0.5),2)
-                time.sleep(delay)
-                # Create anew event using the sensor's data
-                event = self.create_event(sensor)
-                if event is not None:
-                # Add the event to our big list
-                    all_events.append(event)
-        return all_events        
+        interval = 5
+        time_passed = 0
+        all_captured_events = []
+
+        print(f"Starting simulation for {total_seconds} seconds. Sample every {interval} seconds.")
+
+        while time_passed <= total_seconds:
+                print(F"Sampling at second: {time_passed}")
+        
+                for sensor in sensors_list:
+                    event = self.create_event(sensor)
+                    if event:
+                      all_captured_events.append(event)
+                if time_passed + interval <= total_seconds:        
+                    time.sleep(interval)
+                    time_passed += interval
+
+                elif time_passed < total_seconds:
+                    remainder = total_seconds - time_passed
+                    print(f"Waiting for the remainder of {remainder} seconds...")
+                    time.sleep(remainder)
+                    time_passed += remainder
+               
+                else:
+                    break
+                              
+           
+        print(f"\nSimulation complete. Total time: {time_passed} seconds. Processed {len(all_captured_events)} events.")
+        return all_captured_events        
     
 
-    def calculate_statistics(self, events: list):
-        # Calculate and print the summary of all collcted data
+    
 
-        # If the list is empty, stop here
-        if not events:
-            print("No events to analyze.")
-            return
-        # Create a simple list of just the values
-        values = [e['value'] for e in events]
-        #  Basic math for average, max, and min
-        total_avg = sum(values) / len(values)
-        max_val = max(values)
-        min_val = min(values)
-        # Find the specific event with the highst and lowest value
-        max_event = max(events, key=lambda x: x['value'])
-        min_event = min(events, key=lambda x: x['value'])
-        # Print the final report
-        print("\n--- Final Statistics Report ---")
-        print(f"Total events processed: {len(events)}")
-        print(f"Overall Average: {total_avg:.2f}")
-        print(f"Highest Temperature: {max_val} (at {max_event['location']})")
-        print(f"Lowest Temperature: {min_val} (at {min_event['location']})")
-        print("-------------------------------\n")
+    def export_each_sensor_to_json(self, events:list):
 
-    def export_to_json(self, events: list, filename: str = "sensor_data.json"):
-        # Save all event data into a JSON file  
+        sensor_ids = set(e['sensor_id'] for e in events)
+        for s_id in sensor_ids:
+            sensor_events = [e for e in events if e['sensor_id'] == s_id]
+            filename = f"sensor_{s_id}.json"
 
-        # Open the file in write mode
-        with open(filename, 'w') as f:
-            # Save the list as a formatted JSON (indent=4 makes it readable)
-            json.dump(events, f, indent=4)
-        print(f"Successfully saved to {filename}")
+            with open(filename, 'w') as f:
+                json.dump(sensor_events, f, indent=4)
+            print(f"Created standalone file: {filename}")
+
 
 
     def export_to_csv(self, events: list, filename: str = "sensor_data.csv"):

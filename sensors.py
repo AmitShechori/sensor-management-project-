@@ -18,6 +18,8 @@ class Sensor:
         # Check if the value is within range and include the value in the returned string. 
         
     def validate_value(self, value: float) -> str:
+        if not isinstance(value, (int, float)):
+            return "ERROR: Invalid numeric data"
         if value < self.min_val:
             return f"Too Low, the temperature is: {value}C"
         elif value > self.max_val:
